@@ -4,7 +4,7 @@ const { assert, expect } = require("chai")
 
 !developmentChains.includes(network.name)
     ? describe.skip
-    : describe("Lottery Unit Tests", function () {
+    : describe("TogetherForCharity Unit Tests", function () {
 
         let contractFactory, funders, campaignAddress, campaign, provider
 

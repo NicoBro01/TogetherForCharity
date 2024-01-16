@@ -42,7 +42,15 @@ module.exports = {
       blockConfirmations: 6
     }
   },
-  solidity: "0.8.20",
+  solidity: {
+    version: "0.8.20",
+    settings: {
+      optimizer: {
+        enabled: true,
+        runs: 200
+      }
+    }
+  },
   gasReporter: {
     enabled: true,
     currency: "USD",
@@ -60,10 +68,12 @@ module.exports = {
       second: 1
     }
   },
+  mocha: {
+    timeout: 0
+  },
   etherscan: {
     apiKey: {
         sepolia: ETHERSCAN_API_KEY,
-        polygonMumbai: POLYGONSCAN_API_KEY,
         polyon: POLYGONSCAN_API_KEY
     },
   },

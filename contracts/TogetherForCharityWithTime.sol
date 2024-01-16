@@ -2,22 +2,20 @@
 
 pragma solidity ^0.8.20;
 
-import "@chainlink/contracts/src/v0.8/automation/interfaces/AutomationCompatibleInterface.sol";
-import "./TogetherForCharityToken.sol";
-
 /* Errors */
 error TogetherForCharityWithTime__TooShortDuration();
 error TogetherForCharityWithTime__TooSmallDonation();
-error TogetherForCharityWithTime__CampaignClosed();
+error TogetherForCharityWithTime__CampaignClosed(uint256);
 error TogetherForCharityWithTime__TransferFailed();
 error TogetherForCharityWithTime__UpkeepNotNeeded();
 
-contract TogetherForCharityWithTime is AutomationCompatibleInterface {
+contract TogetherForCharityWithTime {
     /* Modifiers */
-    modifier CampaignClosed() {
+
+    /* Campaign MUST be open */
+    modifier CampaignOpen() {
         if (state != CampaignState.OPEN) {
-            // If the campaign is close
-            revert TogetherForCharityWithTime__CampaignClosed();
+            revert TogetherForCharityWithTime__CampaignClosed(campaignID);
         }
         _;
     }
@@ -35,12 +33,11 @@ contract TogetherForCharityWithTime is AutomationCompatibleInterface {
     CampaignState private state;
     address payable private beneficiary;
     address[] private funders;
-    mapping(address => uint256) private fundersToAmount;
+    mapping(address => uint256) private fundersToAmount; // Return how much an address donates in Wei
     uint256 private totalFunded;
-    uint256 private createdTimestamp;
-    uint256 private totalTime;
+    uint256 private createdTimestamp; // Timestamp of the contract creation
+    uint256 private totalTime; // Total time that campaign will runs. When time runs out, the campaign will be delivered
     uint256 private minimumDonation;
-    TogetherForCharityToken private immutable i_token;
 
     /* Constructor */
     constructor(
@@ -48,38 +45,34 @@ contract TogetherForCharityWithTime is AutomationCompatibleInterface {
         string memory _description,
         address _creator,
         address _beneficiary,
-        uint256 _amountFounded,
         uint256 _totalTime,
-        uint256 _minimumAmount,
-        TogetherForCharityToken token
+        uint256 _minimumAmount
     ) {
         campaignID = _campaignID;
         description = _description;
         creator = _creator;
         state = CampaignState.OPEN;
         beneficiary = payable(_beneficiary);
-        funders = new address[](0);
-        funders.push(_creator);
-        fundersToAmount[_creator] = _amountFounded;
-        totalFunded = _amountFounded;
+        totalFunded = 0;
         createdTimestamp = block.timestamp;
         totalTime = _totalTime;
         minimumDonation = _minimumAmount;
-        i_token = token;
     }
 
     /* Functions */
-    function fundCampaign(address funder) public payable CampaignClosed {
+
+    /* Function to donate */
+    function fundCampaign(address funder) public payable CampaignOpen {
         if (msg.value < minimumDonation) {
             revert TogetherForCharityWithTime__TooSmallDonation();
         }
 
-        if (funder == address(0)) {
-            funders.push(msg.sender);
-            fundersToAmount[msg.sender] = msg.value;
-        } else {
+        /* Check if an address has already donated */
+        if (fundersToAmount[funder] == 0) {
             funders.push(funder);
             fundersToAmount[funder] = msg.value;
+        } else {
+            fundersToAmount[funder] += msg.value;
         }
 
         totalFunded += msg.value;
@@ -87,26 +80,23 @@ contract TogetherForCharityWithTime is AutomationCompatibleInterface {
         emit CampaignFunded(campaignID, msg.sender, msg.value);
     }
 
-    function checkUpkeep(
-        bytes memory /* checkData */
-    )
-        public
-        override
-        returns (bool upkeepNeeded, bytes memory /* performData */)
-    {
+    /* Function that returns true if campaign is open and total time has passed */
+    function checkUpkeep() public view returns (bool) {
         bool timePassed = ((block.timestamp - createdTimestamp) > totalTime);
         bool isOpen = (CampaignState.OPEN == state);
 
-        upkeepNeeded = (timePassed && isOpen);
+        return (timePassed && isOpen);
     }
 
-    function performUpkeep(bytes calldata /* performData */) external override {
-        (bool upkeepNeeded, ) = checkUpkeep("");
+    /* Function that sends money to beneficiary if checkUpkeep returns true */
+    function performUpkeep() public {
+        bool upkeepNeeded = checkUpkeep();
 
         if (!upkeepNeeded) {
             revert TogetherForCharityWithTime__UpkeepNotNeeded();
         }
 
+        /* Sending amount */
         (bool success, ) = beneficiary.call{value: address(this).balance}("");
         if (!success) {
             revert TogetherForCharityWithTime__TransferFailed();
@@ -116,6 +106,8 @@ contract TogetherForCharityWithTime is AutomationCompatibleInterface {
 
         emit CampaignDelivered(campaignID, beneficiary, totalFunded);
     }
+
+    /* Getters */
 
     function getCampaignID() public view returns (uint256) {
         return campaignID;
@@ -161,6 +153,14 @@ contract TogetherForCharityWithTime is AutomationCompatibleInterface {
 
     function getMinimumDonation() public view returns (uint256) {
         return minimumDonation;
+    }
+
+    function getCampaignAddress() public view returns (address) {
+        return address(this);
+    }
+
+    function getCampaignType() public pure returns (string memory) {
+        return "Time";
     }
 
     /* Events */

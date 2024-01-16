@@ -4,15 +4,17 @@ pragma solidity ^0.8.20;
 
 /* Errors */
 error TogetherForCharityWithTarget__TooSmallDonation();
-error TogetherForCharityWithTarget__CampaignClosed();
-error TogetherForCharityWithTarget__TransferFailed();
+error TogetherForCharityWithTarget__CampaignClosed(uint256);
+error TogetherForCharityWithTarget__TransferFailed(address, uint256);
+error TogetherForCharityWithTarget__UpkeepNotNeeded();
 
 contract TogetherForCharityWithTarget {
     /* Modifiers */
-    modifier CampaignClosed() {
+
+    /* Campaign MUST be open */
+    modifier CampaignOpen() {
         if (state != CampaignState.OPEN) {
-            // If the campaign is close
-            revert TogetherForCharityWithTarget__CampaignClosed();
+            revert TogetherForCharityWithTarget__CampaignClosed(campaignID);
         }
         _;
     }
@@ -30,9 +32,11 @@ contract TogetherForCharityWithTarget {
     CampaignState private state;
     address payable private beneficiary;
     address[] private funders;
-    mapping(address => uint256) private fundersToAmount;
+    mapping(address => uint256) private fundersToAmount; // Return how much an address donates in Wei
     uint256 private totalFunded;
-    uint256 private targetAmount;
+    uint256 private createdTimestamp; // Timestamp of the contract creation
+    uint256 private maxTime; // Max time to achieve the target amount. If time runs out, funds will be returned to funders
+    uint256 private targetAmount; // Target amount in Wei that has to be achieved to be sent to the beneficiary
     uint256 private minimumDonation;
 
     /* Constructor */
@@ -41,7 +45,6 @@ contract TogetherForCharityWithTarget {
         string memory _description,
         address _creator,
         address _beneficiary,
-        uint256 _amountFounded,
         uint256 _targetAmount,
         uint256 _minimumAmount
     ) {
@@ -50,41 +53,89 @@ contract TogetherForCharityWithTarget {
         creator = _creator;
         state = CampaignState.OPEN;
         beneficiary = payable(_beneficiary);
-        funders = new address[](0);
-        funders.push(_creator);
-        fundersToAmount[_creator] = _amountFounded;
-        totalFunded = _amountFounded;
+        totalFunded = 0;
+        createdTimestamp = block.timestamp;
+        maxTime = 789 * (10 ** 4); // 3 month in seconds
         targetAmount = _targetAmount;
         minimumDonation = _minimumAmount;
     }
 
     /* Functions */
-    function fundCampaign() public payable CampaignClosed {
+
+    /* Function to donate */
+    function fundCampaign(address funder) public payable CampaignOpen {
         if (msg.value < minimumDonation) {
             revert TogetherForCharityWithTarget__TooSmallDonation();
         }
 
-        funders.push(msg.sender);
-        fundersToAmount[msg.sender] = msg.value;
+        /* Check if an address has already donated */
+        if (fundersToAmount[funder] == 0) {
+            funders.push(funder);
+            fundersToAmount[funder] = msg.value;
+        } else {
+            fundersToAmount[funder] += msg.value;
+        }
+
         totalFunded += msg.value;
 
         emit CampaignFunded(campaignID, msg.sender, msg.value);
 
+        /* If target is achieved, it calls deliverCampaign() */
         if (totalFunded >= targetAmount) {
             deliverCampaign();
         }
     }
 
-    function deliverCampaign() internal CampaignClosed {
-        (bool success, ) = beneficiary.call{value: totalFunded}("");
+    /* Function that sends funds to the beneficiary */
+    function deliverCampaign() internal CampaignOpen {
+        (bool success, ) = beneficiary.call{value: address(this).balance}("");
         if (!success) {
-            revert TogetherForCharityWithTarget__TransferFailed();
+            revert TogetherForCharityWithTarget__TransferFailed(
+                beneficiary,
+                address(this).balance
+            );
         }
 
         state = CampaignState.CLOSED; // Campaign Closed
 
         emit CampaignDelivered(campaignID, beneficiary, totalFunded);
     }
+
+    /* Function that returns true if campaign is open and total time has passed */
+    function checkUpkeep() public view returns (bool) {
+        bool timePassed = ((block.timestamp - createdTimestamp) > maxTime);
+        bool isOpen = (CampaignState.OPEN == state);
+
+        return (timePassed && isOpen);
+    }
+
+    /* Function that sends money back to funders if checkUpkeep returns true */
+    function performUpkeep() public {
+        bool upkeepNeeded = checkUpkeep();
+
+        if (!upkeepNeeded) {
+            revert TogetherForCharityWithTarget__UpkeepNotNeeded();
+        }
+
+        /* Sending money back to all funders */
+        for (uint256 i = 0; i < funders.length; i++) {
+            (bool success, ) = funders[i].call{
+                value: fundersToAmount[funders[i]]
+            }("");
+            if (!success) {
+                revert TogetherForCharityWithTarget__TransferFailed(
+                    funders[i],
+                    fundersToAmount[funders[i]]
+                );
+            }
+        }
+
+        state = CampaignState.CLOSED; // Closing campaign
+
+        emit CampaignNotDelivered(campaignID, beneficiary);
+    }
+
+    /* Getters */
 
     function getCampaignID() public view returns (uint256) {
         return campaignID;
@@ -128,6 +179,18 @@ contract TogetherForCharityWithTarget {
         return minimumDonation;
     }
 
+    function getMaxCampaignDurationSeconds() public view returns (uint256) {
+        return maxTime;
+    }
+
+    function getCampaignAddress() public view returns (address) {
+        return address(this);
+    }
+
+    function getCampaignType() public pure returns (string memory) {
+        return "Target";
+    }
+
     /* Events */
     event CampaignFunded(
         uint256 indexed campaignID,
@@ -138,5 +201,9 @@ contract TogetherForCharityWithTarget {
         uint256 indexed campaignID,
         address indexed beneficiary,
         uint256 amount
+    );
+    event CampaignNotDelivered(
+        uint256 indexed campaignID,
+        address indexed beneficiary
     );
 }
