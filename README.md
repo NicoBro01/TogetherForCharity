@@ -8,7 +8,7 @@ In order to deploy the Dapp, make sure you have a package manager and hardhat in
 
 3. Create a .env folder to insert: API Key of the deployer wallet, a blockchain explorer API Key, an RPC URL to connect to a blockchain node;
 
-4. Deploy: `yarn hardhat deploy --network` or `npm hardhat deploy --network` followed by the chosen network
+4. Deploy: `yarn hardhat deploy --network` or `npm hardhat deploy --network` followed by the chosen network name
 
 (In 'hardhat.config.js' and 'helper-hardhat-config.js' there are already Sepolia, Mumbai and Polygon network configurations; feel free to configure the network you want).
 
@@ -18,4 +18,4 @@ In order to make the Dapp working, you have to run 'utils/Keeper.js' script to v
 
 2. Create an ABI folder where you have to put json files of ABIs of the contract factory and campaigns (Note that ABIs can be found in 'artifacts/contracts' folder created by Solidity compiler after the compilation).
 
-Now you can run Keepers.js: `yarn hardhat run utils/Keeper.js --network` or `yarn hardhat run utils/Keeper.js --network` followed by the chosen network.
+Now you can run Keepers.js: `yarn hardhat run utils/Keeper.js --network` or `npm hardhat run utils/Keeper.js --network` followed by the chosen network name.
